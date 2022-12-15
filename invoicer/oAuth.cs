@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using System.Text;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
@@ -12,15 +13,15 @@ using Square;
 using Square.Models;
 using Square.Exceptions;
 
-namespace invoicer
+namespace Invoicer
 {
-    public class oAuth
+    public class OAuth
     {
         private ISquareClient _square;
         private SecretClient _secrets;
 
 
-        public oAuth(ISquareClient squareClient, SecretClient secrets)
+        public OAuth(ISquareClient squareClient, SecretClient secrets)
         {
             _square = squareClient;
             _secrets = secrets;
@@ -38,17 +39,13 @@ namespace invoicer
             var ClientId = System.Environment.GetEnvironmentVariable("SQUARE_APPID");
             var ClientSecret = System.Environment.GetEnvironmentVariable("SQUARE_APPSECRET");
             var SquareScopes = System.Environment.GetEnvironmentVariable("SQUARE_SCOPES");
-            var authUri = 
-#if DEBUG
-                "https://connect.squareupsandbox.com/oauth2/authorize"
-#else
-                "https://connect.squareup.com/oauth2/authorize"
-#endif
-                + "?client_id=" + ClientId
-                + "&scope=" + SquareScopes
-                + "&session=false"
-                + "&state=" + state;
-            return new RedirectResult(authUri);
+            var authUri = new StringBuilder(System.Environment.GetEnvironmentVariable("SQUARE_ENDPOINT"));
+            authUri.Append("/oauth2/authorize");
+            authUri.Append("?client_id=" + ClientId);
+            authUri.Append("&scope=" + SquareScopes);
+            authUri.Append("&session=false");
+            authUri.Append("&state=" + state);
+            return new RedirectResult(authUri.ToString());
         }
 
         [FunctionName("SquareCallback")]

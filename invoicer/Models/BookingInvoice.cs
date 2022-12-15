@@ -1,6 +1,6 @@
 using Square.Models;
 
-namespace invoicer.Models
+namespace Invoicer.Models
 {
     public class BookingInvoice
     {

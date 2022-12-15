@@ -7,15 +7,15 @@ using Microsoft.Extensions.Logging;
 using Square;
 using Square.Exceptions;
 using Square.Models;
-using invoicer.Models;
+using Invoicer.Models;
 
-namespace invoicer
+namespace Invoicer
 {
-    public class functions
+    public class Functions
     {
         private readonly ISquareClient _square;
 
-        public functions(ISquareClient squareClient)
+        public Functions(ISquareClient squareClient)
         {
             _square = squareClient;
         }
@@ -27,7 +27,7 @@ namespace invoicer
         {
             try
             {
-                var start = DateTime.UtcNow.AddDays(-7).ToString("u");
+                var start = DateTime.UtcNow.AddDays(-1).ToString("u");
                 var end = DateTime.UtcNow.ToString("u");
                 ListBookingsResponse result = await _square.BookingsApi.ListBookingsAsync(null, null, null, null, start, end);
                 log.LogInformation("Found {0} appointments", result.Bookings.Count);
@@ -42,6 +42,7 @@ namespace invoicer
             catch (ApiException e)
             {
                 log.LogError("Error getting appointments: {0}", e.Errors.ToString());
+                throw;
             };
         }
         
@@ -82,7 +83,7 @@ namespace invoicer
             catch (ApiException e)
             {
                 log.LogError("Failed to create order: {0} - {1}", booking.Id, e.Errors[0].Detail);
-                throw e;
+                throw;
             }
         }
         
@@ -140,7 +141,7 @@ namespace invoicer
             catch (ApiException e)
             {
                 log.LogError("Failed to create invoice: {0} - {1}", item.Booking.Id, e.Errors[0].Detail);
-                throw e;
+                throw;
             }
         }
 
@@ -159,7 +160,7 @@ namespace invoicer
             catch (ApiException e)
             {
                 log.LogError("Failed to publish invoice: {0} - {1}", draft.Id, e.Errors[0].Detail);
-                throw e;
+                throw;
             }
         }
     }

@@ -5,9 +5,8 @@ using Azure.Security.KeyVault.Secrets;
 using Azure.Identity;
 using System;
 
-[assembly: FunctionsStartup(typeof(invoicer.Startup))]
-
-namespace invoicer
+[assembly: FunctionsStartup(typeof(Invoicer.Startup))]
+namespace Invoicer
 {
     public class Startup : FunctionsStartup
     {
