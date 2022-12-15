@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.ServiceBus;
 using Microsoft.Extensions.Logging;
 using Square;
 using Square.Exceptions;
@@ -23,7 +22,7 @@ namespace invoicer
 
         [FunctionName("getAppointments")]
         public async Task Run([TimerTrigger("0 0 23 * * *")]TimerInfo myTimer, 
-            [ServiceBus("sqOrders", Connection = "SBCONNECTION")]IAsyncCollector<Booking> orders,
+            [EventHub("sqOrders", Connection = "EHCONNECTION")]IAsyncCollector<Booking> orders,
             ILogger log)
         {
             try
@@ -47,10 +46,9 @@ namespace invoicer
         }
         
         [FunctionName("generateOrder")]
-        [return: ServiceBus("sqInvoices", Connection = "SBCONNECTION")]
+        [return: EventHub("sqInvoices", Connection = "EHCONNECTION")]
         public async Task<BookingInvoice> CreateOrderAsync(
-            [ServiceBusTrigger("sqOrders", Connection = "SBCONNECTION")]Booking booking, 
-            string MessageId,
+            [EventHubTrigger("sqOrders", Connection = "EHCONNECTION")]Booking booking, 
             ILogger log) 
         {
             var services = await _square.CatalogApi.ListCatalogAsync(types: "ITEM");
@@ -74,7 +72,6 @@ namespace invoicer
                 .Build();
             var body = new CreateOrderRequest.Builder()
                 .Order(order)
-                .IdempotencyKey(MessageId)
                 .Build();
 
             try
@@ -90,10 +87,9 @@ namespace invoicer
         }
         
         [FunctionName("generateInvoice")]
-        [return: ServiceBus("sqPublish", Connection = "SBCONNECTION")]
+        [return: EventHub("sqPublish", Connection = "EHCONNECTION")]
         public async Task<Invoice> CreateInvoiceAsync(
-            [ServiceBusTrigger("sqInvoices", Connection = "SBCONNECTION")]BookingInvoice item, 
-            string MessageId,
+            [EventHubTrigger("sqInvoices", Connection = "EHCONNECTION")]BookingInvoice item, 
             ILogger log)
         {
             var recipient = new InvoiceRecipient.Builder()
@@ -133,7 +129,6 @@ namespace invoicer
                 .Build();
 
             var body = new CreateInvoiceRequest.Builder(invoice)
-                .IdempotencyKey(MessageId)
                 .Build();
 
             try
@@ -151,12 +146,10 @@ namespace invoicer
 
         [FunctionName("publishInvoice")]
         public async Task PublishInvoiceAsync(
-            [ServiceBusTrigger("sqPublish", Connection = "SBCONNECTION")]Invoice draft, 
-            string MessageId,
+            [EventHubTrigger("sqPublish", Connection = "EHCONNECTION")]Invoice draft, 
             ILogger log)
         {
-            var body = new PublishInvoiceRequest.Builder(1)
-                .IdempotencyKey(MessageId)
+            var body = new PublishInvoiceRequest.Builder(draft.Version.Value)
                 .Build();
             try
             {
