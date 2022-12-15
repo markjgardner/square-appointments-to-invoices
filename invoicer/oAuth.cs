@@ -18,7 +18,6 @@ namespace invoicer
     {
         private ISquareClient _square;
         private SecretClient _secrets;
-        private ILogger _log;
 
 
         public oAuth(ISquareClient squareClient, SecretClient secrets)
