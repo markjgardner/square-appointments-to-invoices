@@ -11,7 +11,8 @@
 			"extensions": [
 				"ms-azuretools.vscode-azurefunctions",
 				"ms-dotnettools.csharp",
-				"azurite.azurite"
+				"azurite.azurite",
+				"ms-azuretools.vscode-bicep"
 			]
 		}
 	},
