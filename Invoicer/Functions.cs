@@ -21,7 +21,7 @@ namespace Invoicer
         }
 
         [FunctionName("getAppointments")]
-        public async Task Run([TimerTrigger("0 0 23 * * *")]TimerInfo myTimer, 
+        public async Task Run([TimerTrigger("0 0 4 * * *")]TimerInfo myTimer, 
             [EventHub("sqOrders", Connection = "EHCONNECTION")]IAsyncCollector<Booking> orders,
             ILogger log)
         {
@@ -119,12 +119,14 @@ namespace Invoicer
                 .BankAccount(true)
                 .Build();
 
+            var deliveryMethod = await GetDeliveryMethod(item.Booking.CustomerId);
+
             var invoice = new Invoice.Builder()
                 .LocationId(item.Booking.LocationId)
                 .OrderId(item.Order.Id)
                 .PrimaryRecipient(recipient)
                 .PaymentRequests(paymentRequests)
-                .DeliveryMethod("EMAIL")
+                .DeliveryMethod(deliveryMethod)
                 .AcceptedPaymentMethods(paymentMethods)
                 .SaleOrServiceDate(serviceDate.ToString("u"))
                 .Build();
@@ -136,7 +138,10 @@ namespace Invoicer
             {
                 var result = await _square.InvoicesApi.CreateInvoiceAsync(body);
                 log.LogInformation("Created invoice {0} for booking {1}", result.Invoice.Id, item.Booking.Id);
-                return result.Invoice; 
+                if (deliveryMethod == "EMAIL")
+                    return result.Invoice;
+                else
+                    return null;
             }
             catch (ApiException e)
             {
@@ -162,6 +167,15 @@ namespace Invoicer
                 log.LogError("Failed to publish invoice: {0} - {1}", draft.Id, e.Errors[0].Detail);
                 throw;
             }
+        }
+
+        private async Task<string> GetDeliveryMethod(string CustomerId)
+        {
+            var customer = await _square.CustomersApi.RetrieveCustomerAsync(CustomerId);
+            if (!string.IsNullOrEmpty(customer.Customer.EmailAddress))
+                return "EMAIL";
+            else 
+                return "SHARE_MANUALLY";
         }
     }
 }
