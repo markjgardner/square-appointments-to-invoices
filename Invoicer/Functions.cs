@@ -22,7 +22,7 @@ namespace Invoicer
 
         [FunctionName("getAppointments")]
         public async Task Run([TimerTrigger("0 0 4 * * *")]TimerInfo myTimer, 
-            [EventHub("sqOrders", Connection = "EHCONNECTION")]IAsyncCollector<Booking> orders,
+            [ServiceBusTrigger("sqOrders", "invoicer", Connection = "SBCONNECTION")]IAsyncCollector<Booking> orders,
             ILogger log)
         {
             try
@@ -47,9 +47,9 @@ namespace Invoicer
         }
         
         [FunctionName("generateOrder")]
-        [return: EventHub("sqInvoices", Connection = "EHCONNECTION")]
+        [return: ServiceBus("sqInvoices", Connection = "SBCONNECTION")]
         public async Task<BookingInvoice> CreateOrderAsync(
-            [EventHubTrigger("sqOrders", Connection = "EHCONNECTION")]Booking booking, 
+            [ServiceBusTrigger("sqOrders", "invoicer", Connection = "SBCONNECTION")]Booking booking, 
             ILogger log) 
         {
             var services = await _square.CatalogApi.ListCatalogAsync(types: "ITEM");
@@ -88,9 +88,9 @@ namespace Invoicer
         }
         
         [FunctionName("generateInvoice")]
-        [return: EventHub("sqPublish", Connection = "EHCONNECTION")]
+        [return: ServiceBus("sqPublish", Connection = "SBCONNECTION")]
         public async Task<Invoice> CreateInvoiceAsync(
-            [EventHubTrigger("sqInvoices", Connection = "EHCONNECTION")]BookingInvoice item, 
+            [ServiceBusTrigger("sqInvoices", "invoicer", Connection = "SBCONNECTION")]BookingInvoice item, 
             ILogger log)
         {
             var recipient = new InvoiceRecipient.Builder()
@@ -152,7 +152,7 @@ namespace Invoicer
 
         [FunctionName("publishInvoice")]
         public async Task PublishInvoiceAsync(
-            [EventHubTrigger("sqPublish", Connection = "EHCONNECTION")]Invoice draft, 
+            [ServiceBusTrigger("sqPublish", "invoicer", Connection = "SBCONNECTION")]Invoice draft, 
             ILogger log)
         {
             var body = new PublishInvoiceRequest.Builder(draft.Version.Value)
