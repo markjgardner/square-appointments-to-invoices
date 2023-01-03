@@ -1,72 +1,71 @@
 using System;
-using System.IO;
 using System.Threading.Tasks;
 using System.Text;
 using Azure.Security.KeyVault.Secrets;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
+using Invoicer.Models;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using Square;
 using Square.Models;
 using Square.Exceptions;
+using Microsoft.Extensions.Options;
 
 namespace Invoicer
 {
     public class OAuth
     {
+        private readonly ILogger _logger;
         private ISquareClient _square;
         private SecretClient _secrets;
+        private readonly SquareAppConfig _appConfig;
 
 
-        public OAuth(ISquareClient squareClient, SecretClient secrets)
+        public OAuth(ISquareClient squareClient, SecretClient secrets, IOptions<SquareAppConfig> config, ILoggerFactory loggerFactory)
         {
+            _logger = loggerFactory.CreateLogger<OAuth>();
             _square = squareClient;
             _secrets = secrets;
+            _appConfig = config.Value;
         }
         
-        [FunctionName("SquareAuth")]
-        public async Task<IActionResult> SquareAuth(
-            [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req,
-            ILogger log)
+        [Function("SquareAuth")]
+        public async Task<HttpResponseData> SquareAuth(
+            [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequestData req)
         {   
             // create and store CSRF token            
             var state = Guid.NewGuid().ToString();
             await _secrets.SetSecretAsync("csrf-token", state);
-
-            var ClientId = System.Environment.GetEnvironmentVariable("SQUARE_APPID");
-            var ClientSecret = System.Environment.GetEnvironmentVariable("SQUARE_APPSECRET");
-            var SquareScopes = System.Environment.GetEnvironmentVariable("SQUARE_SCOPES");
-            var authUri = new StringBuilder(System.Environment.GetEnvironmentVariable("SQUARE_ENDPOINT"));
+            
+            var authUri = new StringBuilder(_appConfig.SquareEndpoint);
             authUri.Append("/oauth2/authorize");
-            authUri.Append("?client_id=" + ClientId);
-            authUri.Append("&scope=" + SquareScopes);
+            authUri.Append("?client_id=" + _appConfig.SquareAppId);
+            authUri.Append("&scope=" + _appConfig.SquareScopes);
             authUri.Append("&session=false");
             authUri.Append("&state=" + state);
-            return new RedirectResult(authUri.ToString());
+
+            var resp = req.CreateResponse(System.Net.HttpStatusCode.Redirect);
+            resp.Headers.Add("Location", authUri.ToString());
+            return resp;
         }
 
-        [FunctionName("SquareCallback")]
-        public async Task<IActionResult> SquareCallback(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequest req,
-            ILogger log)
+        [Function("SquareCallback")]
+        public async Task<HttpResponseData> SquareCallback(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequestData req)
         {
+            var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
             var csrf = await _secrets.GetSecretAsync("csrf-token");
-            var code = req.Query["code"][0];;
-            var state = req.Query["state"][0];
-            if (String.Compare(state, csrf.Value.Value) != 0)
+            var resp = req.CreateResponse(System.Net.HttpStatusCode.OK);
+            if (String.Compare(query["state"], csrf.Value.Value) != 0)
             {
-                return new BadRequestResult();
+                resp.StatusCode = System.Net.HttpStatusCode.BadRequest;
+                return resp;
             }
 
-            var ClientId = System.Environment.GetEnvironmentVariable("SQUARE_APPID");
-            var ClientSecret = System.Environment.GetEnvironmentVariable("SQUARE_APPSECRET");
-            var SquareScopes = System.Environment.GetEnvironmentVariable("SQUARE_SCOPES").Split(" ");
-            var request = new ObtainTokenRequest.Builder(ClientId, "authorization_code")
-                .ClientSecret(ClientSecret)
-                .Code(code)
+            var SquareScopes = _appConfig.SquareScopes.Split(" ");
+            var request = new ObtainTokenRequest.Builder(_appConfig.SquareAppId, "authorization_code")
+                .ClientSecret(_appConfig.SquareAppSecret)
+                .Code(query["code"])
                 .Scopes(SquareScopes)
                 .Build(); 
 
@@ -74,24 +73,24 @@ namespace Invoicer
                 var token = await _square.OAuthApi.ObtainTokenAsync(request);
                 await _secrets.SetSecretAsync("square-token", token.AccessToken);
                 await _secrets.SetSecretAsync("square-refresh-token", token.RefreshToken);
-                return new OkResult();
+                return resp;
             }
             catch (ApiException ex) {
-                log.LogInformation(String.Join("\n", ex.Errors));
-                return new BadRequestResult();
+                _logger.LogInformation(String.Join("\n", ex.Errors));
+                resp.StatusCode = System.Net.HttpStatusCode.BadRequest;
+                return resp;
             }
         }
         
         //Refresh the token weekly
-        [FunctionName("refreshSquareToken")]
-        public async Task Run([TimerTrigger("0 30 22 1 * *")]TimerInfo myTimer, ILogger log)
+        [Function("refreshSquareToken")]
+        public async Task Run([TimerTrigger("0 30 22 1 * *")]TimerInfo myTimer)
         {
-            var ClientId = System.Environment.GetEnvironmentVariable("SQUARE_APPID");
-            var ClientSecret = System.Environment.GetEnvironmentVariable("SQUARE_APPSECRET");
-            var SquareScopes = System.Environment.GetEnvironmentVariable("SQUARE_SCOPES").Split(" ");
+            
+            var SquareScopes = _appConfig.SquareScopes.Split(" ");
             var refresh = await _secrets.GetSecretAsync("square-refresh-token");
-            var request = new ObtainTokenRequest.Builder(ClientId, "refresh_token")
-                .ClientSecret(ClientSecret)
+            var request = new ObtainTokenRequest.Builder(_appConfig.SquareAppId, "refresh_token")
+                .ClientSecret(_appConfig.SquareAppSecret)
                 .Scopes(SquareScopes)
                 .RefreshToken(refresh.Value.Value)
                 .Build();
@@ -102,7 +101,7 @@ namespace Invoicer
                 await _secrets.SetSecretAsync("square-refresh-token", token.RefreshToken);
             }
             catch (ApiException ex) {
-                log.LogInformation(String.Join("\n", ex.Errors));
+                _logger.LogInformation(String.Join("\n", ex.Errors));
             }
         }
     }

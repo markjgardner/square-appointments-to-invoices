@@ -59,22 +59,22 @@ resource functionApp 'Microsoft.Web/sites@2021-03-01' = {
         }
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'dotnet'
+          value: 'dotnet-isolated'
         }
         {
-          name: 'SQUARE_ENDPOINT'
+          name: 'SQUARE_APP__SQUAREENDPOINT'
           value: 'https://connect.squareup.com'
         }
         {
-          name: 'SQUARE_APPID'
+          name: 'SQUARE_APP__SQUAREAPPID'
           value: '@Microsoft.KeyVault(SecretUri=${appIdSecret.properties.secretUri})'
         }
         {
-          name: 'SQUARE_APPSECRET'
+          name: 'SQUARE_APP__SQUAREAPPSECRET'
           value: '@Microsoft.KeyVault(SecretUri=${appSecretSecret.properties.secretUri})'
         }
         {
-          name: 'SQUARE_SCOPES'
+          name: 'SQUARE_APP__SQUARESCOPES'
           value: 'APPOINTMENTS_ALL_READ APPOINTMENTS_READ APPOINTMENTS_ALL_WRITE APPOINTMENTS_WRITE INVOICES_READ INVOICES_WRITE ORDERS_WRITE ORDERS_READ ITEMS_READ'
         }
         {
