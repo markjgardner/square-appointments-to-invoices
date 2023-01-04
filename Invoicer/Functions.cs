@@ -8,6 +8,9 @@ using Square;
 using Square.Exceptions;
 using Square.Models;
 using Invoicer.Models;
+using Microsoft.Azure.Functions.Worker.Http;
+using System.Text;
+using System.Net;
 
 namespace Invoicer
 {
@@ -22,17 +25,32 @@ namespace Invoicer
             _logger = loggerFactory.CreateLogger<Functions>();
         }
 
+        [Function("getAppointmentsTimer")]
+        [ServiceBusOutput("sqOrders", Connection = "SBCONNECTION")]
+        public async Task<IEnumerable<Booking>> Timer([TimerTrigger("0 0 4 * * *")]TimerInfo myTimer)
+        {
+            return await GetAppointments(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow);
+        }
+
         [Function("getAppointments")]
         [ServiceBusOutput("sqOrders", Connection = "SBCONNECTION")]
-        public async Task<IEnumerable<Booking>> Run([TimerTrigger("0 0 4 * * *")]TimerInfo myTimer)
+        public async Task<IEnumerable<Booking>> Run([HttpTrigger(AuthorizationLevel.Function, "get")]HttpRequestData req,
+            FunctionContext context,
+            DateTime start,
+            DateTime end)
+        {
+            return await GetAppointments(start, end);
+        }
+
+        private async Task<IEnumerable<Booking>> GetAppointments(DateTime start, DateTime end)
         {
             var orders = new List<Booking>();
-            var start = DateTime.UtcNow.AddDays(-1).ToString("u");
-            var end = DateTime.UtcNow.ToString("u");
+            var startStr = start.ToString("u");
+            var endStr = end.ToString("u");
 
             try
             {
-                ListBookingsResponse result = await _square.BookingsApi.ListBookingsAsync(null, null, null, null, start, end);
+                ListBookingsResponse result = await _square.BookingsApi.ListBookingsAsync(null, null, null, null, startStr, endStr);
                 _logger.LogInformation("Found {0} appointments", result.Bookings.Count);
                 foreach(var booking in result.Bookings)
                 {
@@ -45,7 +63,7 @@ namespace Invoicer
             }
             catch (ApiException e)
             {
-                _logger.LogError("Error getting appointments: {0}", e.Errors.ToString());
+                _logger.LogError("{0} : {1}", e.Errors[0].Code, e.Errors[0].Detail);
                 throw;
             };
         }
@@ -76,6 +94,7 @@ namespace Invoicer
                 .Build();
             var body = new CreateOrderRequest.Builder()
                 .Order(order)
+                .IdempotencyKey(booking.Id)
                 .Build();
 
             try
@@ -134,6 +153,7 @@ namespace Invoicer
                 .Build();
 
             var body = new CreateInvoiceRequest.Builder(invoice)
+                .IdempotencyKey(item.Booking.Id)
                 .Build();
 
             try
