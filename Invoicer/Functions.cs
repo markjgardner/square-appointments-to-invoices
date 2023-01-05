@@ -2,55 +2,76 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Square;
 using Square.Exceptions;
 using Square.Models;
 using Invoicer.Models;
+using Microsoft.Azure.Functions.Worker.Http;
+using System.Text;
+using System.Net;
 
 namespace Invoicer
 {
     public class Functions
     {
         private readonly ISquareClient _square;
+        private readonly ILogger _logger;
 
-        public Functions(ISquareClient squareClient)
+        public Functions(ISquareClient squareClient, ILoggerFactory loggerFactory)
         {
             _square = squareClient;
+            _logger = loggerFactory.CreateLogger<Functions>();
         }
 
-        [FunctionName("getAppointments")]
-        public async Task Run([TimerTrigger("0 0 4 * * *")]TimerInfo myTimer, 
-            [EventHub("sqOrders", Connection = "EHCONNECTION")]IAsyncCollector<Booking> orders,
-            ILogger log)
+        [Function("getAppointmentsTimer")]
+        [ServiceBusOutput("sqOrders", Connection = "SBCONNECTION")]
+        public async Task<IEnumerable<Booking>> Timer([TimerTrigger("0 0 4 * * *")]TimerInfo myTimer)
         {
+            return await GetAppointments(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow);
+        }
+
+        [Function("getAppointments")]
+        [ServiceBusOutput("sqOrders", Connection = "SBCONNECTION")]
+        public async Task<IEnumerable<Booking>> Run([HttpTrigger(AuthorizationLevel.Function, "get")]HttpRequestData req,
+            FunctionContext context,
+            DateTime start,
+            DateTime end)
+        {
+            return await GetAppointments(start, end);
+        }
+
+        private async Task<IEnumerable<Booking>> GetAppointments(DateTime start, DateTime end)
+        {
+            var orders = new List<Booking>();
+            var startStr = start.ToString("u");
+            var endStr = end.ToString("u");
+
             try
             {
-                var start = DateTime.UtcNow.AddDays(-1).ToString("u");
-                var end = DateTime.UtcNow.ToString("u");
-                ListBookingsResponse result = await _square.BookingsApi.ListBookingsAsync(null, null, null, null, start, end);
-                log.LogInformation("Found {0} appointments", result.Bookings.Count);
+                ListBookingsResponse result = await _square.BookingsApi.ListBookingsAsync(null, null, null, null, startStr, endStr);
+                _logger.LogInformation("Found {0} appointments", result.Bookings.Count);
                 foreach(var booking in result.Bookings)
                 {
                     if (booking.Status == "ACCEPTED" || booking.Status == "NO_SHOW")
                     {
-                        await orders.AddAsync(booking);
+                        orders.Add(booking);
                     }
                 }
+                return orders;
             }
             catch (ApiException e)
             {
-                log.LogError("Error getting appointments: {0}", e.Errors.ToString());
+                _logger.LogError("{0} : {1}", e.Errors[0].Code, e.Errors[0].Detail);
                 throw;
             };
         }
         
-        [FunctionName("generateOrder")]
-        [return: EventHub("sqInvoices", Connection = "EHCONNECTION")]
+        [Function("generateOrder")]
+        [ServiceBusOutput("sqInvoices", Connection = "SBCONNECTION")]
         public async Task<BookingInvoice> CreateOrderAsync(
-            [EventHubTrigger("sqOrders", Connection = "EHCONNECTION")]Booking booking, 
-            ILogger log) 
+            [ServiceBusTrigger("sqOrders", "invoicer", Connection = "SBCONNECTION")]Booking booking) 
         {
             var services = await _square.CatalogApi.ListCatalogAsync(types: "ITEM");
             var serviceLines = new List<OrderServiceCharge>();
@@ -73,6 +94,7 @@ namespace Invoicer
                 .Build();
             var body = new CreateOrderRequest.Builder()
                 .Order(order)
+                .IdempotencyKey(booking.Id)
                 .Build();
 
             try
@@ -82,16 +104,15 @@ namespace Invoicer
             }
             catch (ApiException e)
             {
-                log.LogError("Failed to create order: {0} - {1}", booking.Id, e.Errors[0].Detail);
+                _logger.LogError("Failed to create order: {0} - {1}", booking.Id, e.Errors[0].Detail);
                 throw;
             }
         }
         
-        [FunctionName("generateInvoice")]
-        [return: EventHub("sqPublish", Connection = "EHCONNECTION")]
+        [Function("generateInvoice")]
+        [ServiceBusOutput("sqPublish", Connection = "SBCONNECTION")]
         public async Task<Invoice> CreateInvoiceAsync(
-            [EventHubTrigger("sqInvoices", Connection = "EHCONNECTION")]BookingInvoice item, 
-            ILogger log)
+            [ServiceBusTrigger("sqInvoices", "invoicer", Connection = "SBCONNECTION")]BookingInvoice item)
         {
             var recipient = new InvoiceRecipient.Builder()
                 .CustomerId(item.Booking.CustomerId)
@@ -132,12 +153,13 @@ namespace Invoicer
                 .Build();
 
             var body = new CreateInvoiceRequest.Builder(invoice)
+                .IdempotencyKey(item.Booking.Id)
                 .Build();
 
             try
             {
                 var result = await _square.InvoicesApi.CreateInvoiceAsync(body);
-                log.LogInformation("Created invoice {0} for booking {1}", result.Invoice.Id, item.Booking.Id);
+                _logger.LogInformation("Created invoice {0} for booking {1}", result.Invoice.Id, item.Booking.Id);
                 if (deliveryMethod == "EMAIL")
                     return result.Invoice;
                 else
@@ -145,26 +167,25 @@ namespace Invoicer
             }
             catch (ApiException e)
             {
-                log.LogError("Failed to create invoice: {0} - {1}", item.Booking.Id, e.Errors[0].Detail);
+                _logger.LogError("Failed to create invoice: {0} - {1}", item.Booking.Id, e.Errors[0].Detail);
                 throw;
             }
         }
 
-        [FunctionName("publishInvoice")]
+        [Function("publishInvoice")]
         public async Task PublishInvoiceAsync(
-            [EventHubTrigger("sqPublish", Connection = "EHCONNECTION")]Invoice draft, 
-            ILogger log)
+            [ServiceBusTrigger("sqPublish", "invoicer", Connection = "SBCONNECTION")]Invoice draft)
         {
             var body = new PublishInvoiceRequest.Builder(draft.Version.Value)
                 .Build();
             try
             {
                 var result = await _square.InvoicesApi.PublishInvoiceAsync(draft.Id, body);
-                log.LogInformation("Published invoice {0}", result.Invoice.Id); 
+                _logger.LogInformation("Published invoice {0}", result.Invoice.Id); 
             }
             catch (ApiException e)
             {
-                log.LogError("Failed to publish invoice: {0} - {1}", draft.Id, e.Errors[0].Detail);
+                _logger.LogError("Failed to publish invoice: {0} - {1}", draft.Id, e.Errors[0].Detail);
                 throw;
             }
         }

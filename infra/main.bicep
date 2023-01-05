@@ -1,4 +1,4 @@
-param appName string = 'whfsquareinvoicer'
+param appName string
 param location string = resourceGroup().location
 param appInsightsName string
 param kvName string
@@ -59,22 +59,22 @@ resource functionApp 'Microsoft.Web/sites@2021-03-01' = {
         }
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'dotnet'
+          value: 'dotnet-isolated'
         }
         {
-          name: 'SQUARE_ENDPOINT'
+          name: 'SQUARE_APP__SQUAREENDPOINT'
           value: 'https://connect.squareup.com'
         }
         {
-          name: 'SQUARE_APPID'
+          name: 'SQUARE_APP__SQUAREAPPID'
           value: '@Microsoft.KeyVault(SecretUri=${appIdSecret.properties.secretUri})'
         }
         {
-          name: 'SQUARE_APPSECRET'
+          name: 'SQUARE_APP__SQUAREAPPSECRET'
           value: '@Microsoft.KeyVault(SecretUri=${appSecretSecret.properties.secretUri})'
         }
         {
-          name: 'SQUARE_SCOPES'
+          name: 'SQUARE_APP__SQUARESCOPES'
           value: 'APPOINTMENTS_ALL_READ APPOINTMENTS_READ APPOINTMENTS_ALL_WRITE APPOINTMENTS_WRITE INVOICES_READ INVOICES_WRITE ORDERS_WRITE ORDERS_READ ITEMS_READ'
         }
         {
@@ -82,8 +82,8 @@ resource functionApp 'Microsoft.Web/sites@2021-03-01' = {
           value: keyVault.properties.vaultUri
         }
         {
-          name: 'EHCONNECTION'
-          value: sasRuleEH.listKeys().primaryConnectionString
+          name: 'SBCONNECTION'
+          value: sbSASPolicy.listKeys().primaryConnectionString
         }
         
     
@@ -151,25 +151,22 @@ resource squareRefreshTokenSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01'
   }
 }
 
-resource eventhubNS 'Microsoft.EventHub/namespaces@2022-01-01-preview' = {
-  name: 'windhoverEvents'
+resource servicebus 'Microsoft.ServiceBus/namespaces@2022-01-01-preview' = {
+  name: '${appName}sb'
   location: location
   sku: {
-    capacity: 1
-    name: 'Basic'
-    tier: 'Basic'
+    name: 'Standard'
+    tier: 'Standard'
   }
   properties: {
-    disableLocalAuth: false
-    isAutoInflateEnabled: false
-    publicNetworkAccess: 'Enabled'
     zoneRedundant: false
+    disableLocalAuth: false
   }
 }
 
-resource sasRuleEH  'Microsoft.EventHub/namespaces/authorizationRules@2022-01-01-preview' = {
-  parent: eventhubNS
-  name: 'ListenSend'
+resource sbSASPolicy 'Microsoft.ServiceBus/namespaces/AuthorizationRules@2022-01-01-preview' = {
+  name: 'listensend'
+  parent: servicebus
   properties: {
     rights: [
       'Listen'
@@ -178,29 +175,67 @@ resource sasRuleEH  'Microsoft.EventHub/namespaces/authorizationRules@2022-01-01
   }
 }
 
-resource ordersEH 'Microsoft.EventHub/namespaces/eventhubs@2022-01-01-preview' = {
-  name: 'sqOrders'
-  parent: eventhubNS
+resource invoicesTopic 'Microsoft.ServiceBus/namespaces/topics@2022-01-01-preview' = {
+  name: 'sqinvoices'
+  parent: servicebus
+}
+
+resource invoicerInvoicesSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-01-01-preview' = {
+  name: 'invoicer'
+  parent: invoicesTopic
   properties: {
-    messageRetentionInDays: 1
-    partitionCount: 8
+    deadLetteringOnMessageExpiration: true
+    maxDeliveryCount: 5
   }
 }
 
-resource invoicesEH 'Microsoft.EventHub/namespaces/eventhubs@2022-01-01-preview' = {
-  name: 'sqInvoices'
-  parent: eventhubNS
+resource ordersTopic 'Microsoft.ServiceBus/namespaces/topics@2022-01-01-preview' = {
+  name: 'sqorders'
+  parent: servicebus
+}
+
+resource invoicerOrdersSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-01-01-preview' = {
+  name: 'invoicer'
+  parent: ordersTopic
   properties: {
-    messageRetentionInDays: 1
-    partitionCount: 8
+    deadLetteringOnMessageExpiration: true
+    maxDeliveryCount: 5
   }
 }
 
-resource publishEH 'Microsoft.EventHub/namespaces/eventhubs@2022-01-01-preview' = {
-  name: 'sqPublish'
-  parent: eventhubNS
+resource publishTopic 'Microsoft.ServiceBus/namespaces/topics@2022-01-01-preview' = {
+  name: 'sqpublish'
+  parent: servicebus
+}
+
+resource invoicerPublishSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-01-01-preview' = {
+  name: 'invoicer'
+  parent: publishTopic
   properties: {
-    messageRetentionInDays: 1
-    partitionCount: 8
+    deadLetteringOnMessageExpiration: true
+    maxDeliveryCount: 5
+  }
+}
+
+resource customersTopic 'Microsoft.ServiceBus/namespaces/topics@2022-01-01-preview' = {
+  name: 'customers'
+  parent: servicebus
+}
+
+resource squareCustomersSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-01-01-preview' = {
+  name: 'square'
+  parent: customersTopic
+  properties: {
+    deadLetteringOnMessageExpiration: true
+    maxDeliveryCount: 5
+  }
+}
+
+resource qboCustomersSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-01-01-preview' = {
+  name: 'qbo'
+  parent: customersTopic
+  properties: {
+    deadLetteringOnMessageExpiration: true
+    maxDeliveryCount: 5
   }
 }
