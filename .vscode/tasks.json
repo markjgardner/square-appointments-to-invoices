@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "clean (functions)",
+      "label": "clean (Invoicer)",
       "command": "dotnet",
       "args": [
         "clean",
@@ -12,11 +12,11 @@
       "type": "process",
       "problemMatcher": "$msCompile",
       "options": {
-        "cwd": "${workspaceFolder}/invoicer"
+        "cwd": "${workspaceFolder}/Invoicer"
       }
     },
     {
-      "label": "build (functions)",
+      "label": "build (Invoicer)",
       "command": "dotnet",
       "args": [
         "build",
@@ -24,18 +24,18 @@
         "/consoleloggerparameters:NoSummary"
       ],
       "type": "process",
-      "dependsOn": "clean (functions)",
+      "dependsOn": "clean (Invoicer)",
       "group": {
         "kind": "build",
         "isDefault": true
       },
       "problemMatcher": "$msCompile",
       "options": {
-        "cwd": "${workspaceFolder}/invoicer"
+        "cwd": "${workspaceFolder}/Invoicer"
       }
     },
     {
-      "label": "clean release (functions)",
+      "label": "clean release (Invoicer)",
       "command": "dotnet",
       "args": [
         "clean",
@@ -47,11 +47,11 @@
       "type": "process",
       "problemMatcher": "$msCompile",
       "options": {
-        "cwd": "${workspaceFolder}/invoicer"
+        "cwd": "${workspaceFolder}/Invoicer"
       }
     },
     {
-      "label": "publish (functions)",
+      "label": "publish (Invoicer)",
       "command": "dotnet",
       "args": [
         "publish",
@@ -61,17 +61,17 @@
         "/consoleloggerparameters:NoSummary"
       ],
       "type": "process",
-      "dependsOn": "clean release (functions)",
+      "dependsOn": "clean release (Invoicer)",
       "problemMatcher": "$msCompile",
       "options": {
-        "cwd": "${workspaceFolder}/invoicer"
+        "cwd": "${workspaceFolder}/Invoicer"
       }
     },
     {
       "type": "func",
-      "dependsOn": "build (functions)",
+      "dependsOn": "build (Invoicer)",
       "options": {
-        "cwd": "${workspaceFolder}/invoicer/bin/Debug/net6.0"
+        "cwd": "${workspaceFolder}/Invoicer/bin/Debug/net6.0"
       },
       "command": "host start",
       "isBackground": true,
