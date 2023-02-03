@@ -198,5 +198,15 @@ namespace Invoicer
             else 
                 return "SHARE_MANUALLY";
         }
+
+        [Function("webhookReceiver")]
+        public async Task<HttpResponseData> webhook([HttpTrigger(AuthorizationLevel.Function, "get")]HttpRequestData req,
+            FunctionContext context)
+        {
+            var body = new StreamReader(req.Body).ReadToEnd();
+            _logger.LogInformation($"webhook received: \n {body}");
+            return req.CreateResponse(HttpStatusCode.Accepted);
+        }
+
     }
 }
